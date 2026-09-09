@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <title>Blobio</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800;900&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="style.css" />
+    <script>
+      (function () {
+        var saved = localStorage.getItem("blobio-dark");
+        var q = new URLSearchParams(location.search).get("dark");
+        var dark =
+          q === "1" ||
+          (q !== "0" && (saved === "1" || (saved === null && matchMedia("(prefers-color-scheme: dark)").matches)));
+        if (dark) document.documentElement.classList.add("dark");
+      })();
+    </script>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><defs><radialGradient id='g' cx='35%25' cy='30%25'><stop offset='0' stop-color='%23bfe6ff'/><stop offset='1' stop-color='%233d8bfd'/></radialGradient></defs><circle cx='32' cy='32' r='28' fill='url(%23g)'/></svg>" />
+  </head>
+  <body>
+    <canvas id="game"></canvas>
+    <button type="button" id="theme-toggle" class="theme-toggle" aria-label="Toggle dark mode" title="Toggle dark mode">
+      <span class="icon-moon" aria-hidden="true">☾</span>
+      <span class="icon-sun" aria-hidden="true">☀</span>
+    </button>
+
+    <div id="hud" class="hidden">
+      <aside id="leaderboard">
+        <h2>Leaderboard</h2>
+        <ol id="lb-list"></ol>
+      </aside>
+      <div id="scorebox">
+        <span class="score-label">Score</span>
+        <span id="score">0</span>
+      </div>
+      <div id="hud-net" class="net-pill">Connecting</div>
+      <canvas id="minimap" width="168" height="168"></canvas>
+      <div id="mobile-controls">
+        <button type="button" id="btn-eject" aria-label="Eject mass">W</button>
+        <button type="button" id="btn-split" aria-label="Split">Split</button>
+      </div>
+    </div>
+
+    <div id="menu" class="overlay">
+      <div class="panel">
+        <div class="logo">
+          <span class="blob b1"></span>
+          <span class="blob b2"></span>
+          <span class="blob b3"></span>
+        </div>
+        <h1>Blobio</h1>
+        <p class="tag">Eat, grow, and hunt other players online.</p>
+        <div id="menu-net" class="net-pill menu-net">Connecting to Firebase…</div>
+        <input id="nick" maxlength="16" placeholder="Nickname" autocomplete="off" spellcheck="false" />
+        <div id="colors" class="colors"></div>
+        <button type="button" id="play">Play</button>
+        <p class="best">Best score: <span id="best-score">0</span></p>
+        <div class="help">
+          <span><kbd>Mouse</kbd> Move</span>
+          <span><kbd>Space</kbd> Split</span>
+          <span><kbd>W</kbd> Eject</span>
+          <span><kbd>D</kbd> Dark</span>
+        </div>
+      </div>
+    </div>
+
+    <div id="death" class="overlay hidden">
+      <div class="panel">
+        <h2>You were eaten</h2>
+        <p class="tag">Final score: <strong id="death-score">0</strong></p>
+        <p class="best">Best: <span id="death-best">0</span></p>
+        <button type="button" id="again">Play again</button>
+        <button type="button" id="home" class="ghost">Main menu</button>
+      </div>
+    </div>
+
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
+    <script src="firebase-config.js"></script>
+    <script src="game.js"></script>
+  </body>
+</html>

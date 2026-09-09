@@ -1,0 +1,27 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "blobio": {
+      ".read": true,
+      "arena": {
+        "players": {
+          "$playerId": {
+            ".write": true,
+            ".validate": "newData.val() === null || (newData.hasChildren(['n', 'c', 'a', 'm', 's', 't']) && newData.child('n').isString() && newData.child('n').val().length > 0 && newData.child('n').val().length <= 16)"
+          }
+        },
+        "kills": {
+          "$playerId": {
+            ".write": true
+          }
+        },
+        "eaten": {
+          "$playerId": {
+            ".write": true
+          }
+        }
+      }
+    }
+  }
+}

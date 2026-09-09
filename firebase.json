@@ -1,0 +1,39 @@
+{
+  "database": {
+    "rules": "database.rules.json"
+  },
+  "hosting": [
+    {
+      "site": "blobio-game",
+      "public": ".",
+      "ignore": [
+        "firebase.json",
+        "**/.*",
+        "**/node_modules/**",
+        "firebase-debug.log",
+        "database.rules.json",
+        "redirect/**",
+        "firebase-config.example.js"
+      ],
+      "headers": [
+        {
+          "source": "**/*.@(js|css)",
+          "headers": [
+            { "key": "Cache-Control", "value": "no-cache" }
+          ]
+        }
+      ]
+    },
+    {
+      "site": "nadia-app-ee605",
+      "public": "redirect",
+      "redirects": [
+        {
+          "source": "**",
+          "destination": "https://blobio-game.web.app",
+          "type": 301
+        }
+      ]
+    }
+  ]
+}
