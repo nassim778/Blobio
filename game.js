@@ -85,6 +85,7 @@
   const authNameEl = document.getElementById("auth-name");
   const authLevelEl = document.getElementById("auth-level");
   const authSignOutBtn = document.getElementById("auth-signout");
+  const deathTitleEl = document.getElementById("death-title");
   const deathPeakEl = document.getElementById("death-peak");
   const deathScoreEl = document.getElementById("death-score");
   const deathBestEl = document.getElementById("death-best");
@@ -115,6 +116,7 @@
   let glory = 0;
   let level = 1;
   let peakScore = 0;
+  let killedSelf = false;
   const skinFileEl = document.getElementById("skin-file");
   const skinClearEl = document.getElementById("skin-clear");
   const skinPreviewEl = document.getElementById("skin-preview");
@@ -578,6 +580,7 @@
     }
     const pos = randomEmpty();
     me = makePlayer(name, selectedColor, true, pos.x, pos.y, START_MASS, myNetId);
+    killedSelf = false;
     peakScore = Math.round(START_MASS);
     camera.x = pos.x;
     camera.y = pos.y;
@@ -657,6 +660,31 @@
         Math.sin(a) * rand(520, 900)
       );
     }
+  }
+
+  function killSelf() {
+    if (mode !== "play" || !me || me.dead) return;
+    killedSelf = true;
+    for (const cell of me.cells) {
+      burst(cell.x, cell.y, me.color, 18, Math.min(22, radius(cell.mass) * 0.45));
+      const pieces = Math.min(24, Math.max(8, Math.round(Math.min(cell.mass, 336) / EJECT_MASS)));
+      const each = EJECT_MASS;
+      for (let i = 0; i < pieces; i++) {
+        const a = (i / pieces) * Math.PI * 2 + rand(-0.2, 0.2);
+        const dist = rand(6, Math.max(10, radius(cell.mass) * 0.55));
+        ejects.push({
+          x: cell.x + Math.cos(a) * dist,
+          y: cell.y + Math.sin(a) * dist,
+          vx: Math.cos(a) * rand(220, 640),
+          vy: Math.sin(a) * rand(220, 640),
+          mass: each,
+          color: me.color,
+          age: 0,
+        });
+      }
+    }
+    me.cells.length = 0;
+    me.dead = true;
   }
 
   function eatCell(eater, victim, owner) {
@@ -1043,6 +1071,8 @@
       let gained = 0;
       if (hasAccount()) gained = awardGlory(peak);
       saveCloudBest();
+      if (deathTitleEl) deathTitleEl.textContent = killedSelf ? "Gave up" : "Eaten";
+      killedSelf = false;
       if (deathPeakEl) deathPeakEl.textContent = String(peak);
       deathScoreEl.textContent = String(endScore);
       deathBestEl.textContent = String(Math.round(best));
@@ -1589,15 +1619,21 @@
 
   function normalizeHall(list) {
     const rows = Array.isArray(list) ? list : list && typeof list === "object" ? Object.values(list) : [];
-    return rows
-      .filter((r) => r && typeof r.n === "string" && typeof r.s === "number" && r.s >= 0)
-      .map((r) => ({
+    const byUid = new Map();
+    for (const r of rows) {
+      if (!r || typeof r.n !== "string" || typeof r.s !== "number" || r.s < 0) continue;
+      const uid = typeof r.u === "string" ? r.u.trim() : "";
+      if (!uid) continue;
+      const row = {
         n: String(r.n).slice(0, 16),
         s: Math.round(r.s),
         t: typeof r.t === "number" ? r.t : 0,
-      }))
-      .sort((a, b) => b.s - a.s || a.t - b.t)
-      .slice(0, HALL_STORE);
+        u: uid.slice(0, 128),
+      };
+      const prev = byUid.get(row.u);
+      if (!prev || row.s > prev.s || (row.s === prev.s && row.t < prev.t)) byUid.set(row.u, row);
+    }
+    return [...byUid.values()].sort((a, b) => b.s - a.s || a.t - b.t).slice(0, HALL_STORE);
   }
 
   function renderHall(list) {
@@ -1616,15 +1652,18 @@
   }
 
   function submitHallScore(name, score) {
-    if (!db || !netReady) return;
+    if (!db || !netReady || !hasAccount()) return;
     const s = Math.round(Number(score) || 0);
     if (s <= 0) return;
     const n = String(name || "Blob").trim().slice(0, 16) || "Blob";
+    const u = String(authUser.uid).slice(0, 128);
     db.ref(HALL_PATH)
       .transaction((current) => {
         const rows = normalizeHall(current);
-        if (rows.length >= HALL_STORE && s <= rows[rows.length - 1].s) return;
-        rows.push({ n, s, t: Date.now() });
+        const mine = rows.find((row) => row.u === u);
+        if (mine && s <= mine.s) return;
+        if (!mine && rows.length >= HALL_STORE && s <= rows[rows.length - 1].s) return;
+        rows.push({ n, s, t: Date.now(), u });
         return normalizeHall(rows);
       })
       .catch(() => {});
@@ -1778,6 +1817,9 @@
       } else if (e.code === "KeyW") {
         e.preventDefault();
         if (mode === "play" && me && !me.dead) ejectPlayer(me);
+      } else if (e.code === "Escape") {
+        e.preventDefault();
+        killSelf();
       } else if (e.code === "KeyD" && document.activeElement !== nickEl) {
         e.preventDefault();
         toggleTheme();
@@ -1799,6 +1841,11 @@
     document.getElementById("btn-eject").addEventListener("click", (e) => {
       e.preventDefault();
       if (mode === "play" && me && !me.dead) ejectPlayer(me);
+    });
+    document.getElementById("btn-exit").addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      killSelf();
     });
     nickEl.addEventListener("keydown", (e) => {
       if (e.key === "Enter") startGame();

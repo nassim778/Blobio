@@ -28,16 +28,11 @@
     </button>
 
     <aside id="hall" class="hall-board">
-      <h3>All-time top</h3>
+      <h3>All-time top · accounts</h3>
       <ol id="hall-list">
         <li class="hall-empty">Loading…</li>
       </ol>
     </aside>
-
-    <p class="credit">
-      BY nacim ·
-      <a href="https://github.com/nassim778" target="_blank" rel="noopener noreferrer">GitHub</a>
-    </p>
 
     <div id="hud" class="hidden">
       <aside id="leaderboard">
@@ -48,6 +43,7 @@
         <span class="score-label">Score</span>
         <span id="score">0</span>
       </div>
+      <button type="button" id="btn-exit" aria-label="Exit and die">Exit</button>
       <div id="hud-net" class="net-pill">Connecting</div>
       <canvas id="minimap" width="168" height="168"></canvas>
       <div id="mobile-controls">
@@ -81,7 +77,7 @@
             <img id="auth-avatar" class="auth-avatar" alt="" width="28" height="28" />
             <div class="auth-meta">
               <span id="auth-name" class="auth-name"></span>
-              <span id="auth-level" class="auth-level">Lv 1 · 0 glory</span>
+              <span id="auth-level" class="auth-level">Lv 1</span>
             </div>
             <button type="button" id="auth-signout" class="auth-signout">Sign out</button>
           </div>
@@ -95,14 +91,12 @@
             <canvas id="skin-preview" class="skin-preview hidden" width="40" height="40" aria-hidden="true"></canvas>
           </div>
           <button type="button" id="play">Play</button>
-          <p class="best">
-            Best <span id="best-score">0</span><span id="account-stats" class="hidden">
-              · Lv <span id="level-score">1</span> · Glory <span id="glory-score">0</span></span>
-          </p>
+          <p class="best">Best <span id="best-score">0</span> · Lv <span id="level-score">1</span> · Glory <span id="glory-score">0</span></p>
           <div class="help">
             <span><kbd>Mouse</kbd> move</span>
             <span><kbd>Space</kbd> split</span>
             <span><kbd>W</kbd> eject</span>
+            <span><kbd>Esc</kbd> exit</span>
           </div>
         </div>
       </div>
@@ -110,9 +104,8 @@
 
     <div id="death" class="overlay hidden">
       <div class="menu-shell death-shell">
-        <h2>Eaten</h2>
-        <p class="tag">Peak <strong id="death-peak">0</strong> · End <span id="death-score">0</span> · Best <span id="death-best">0</span></p>
-        <p id="death-account" class="tag hidden">Lv <span id="death-level">1</span> · +<span id="death-glory">0</span> glory</p>
+        <h2 id="death-title">Eaten</h2>
+        <p class="tag">Score <strong id="death-score">0</strong> · Best <span id="death-best">0</span> · Lv <span id="death-level">1</span></p>
         <button type="button" id="again">Play again</button>
         <button type="button" id="home" class="ghost">Main menu</button>
       </div>

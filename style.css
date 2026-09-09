@@ -181,6 +181,29 @@ html.dark .theme-toggle .icon-sun {
   line-height: 1.05;
 }
 
+#btn-exit {
+  position: absolute;
+  left: 14px;
+  bottom: 78px;
+  pointer-events: auto;
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--glass);
+  color: #fff;
+  font-family: inherit;
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  backdrop-filter: blur(14px);
+}
+
+#btn-exit:hover,
+#btn-exit:focus-visible {
+  background: rgba(196, 90, 106, 0.5);
+}
+
 .score-label {
   font-size: 10px;
   letter-spacing: 0.14em;

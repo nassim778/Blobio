@@ -23,9 +23,9 @@
         }
       },
       "hall": {
-        ".write": true,
+        ".write": "auth != null && auth.token.firebase.sign_in_provider != 'anonymous'",
         "$i": {
-          ".validate": "newData.hasChildren(['n', 's', 't']) && newData.child('n').isString() && newData.child('n').val().length > 0 && newData.child('n').val().length <= 16 && newData.child('s').isNumber() && newData.child('s').val() >= 0 && newData.child('s').val() <= 100000000 && newData.child('t').isNumber()"
+          ".validate": "newData.hasChildren(['n', 's', 't', 'u']) && newData.child('n').isString() && newData.child('n').val().length > 0 && newData.child('n').val().length <= 16 && newData.child('s').isNumber() && newData.child('s').val() >= 0 && newData.child('s').val() <= 100000000 && newData.child('t').isNumber() && newData.child('u').isString() && newData.child('u').val().length > 0 && newData.child('u').val().length <= 128"
         }
       },
       "users": {
