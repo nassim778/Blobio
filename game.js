@@ -16,29 +16,32 @@
   const MERGE_BASE = 14;
   const FOOD_SEED = 77421;
   const NET_PATH = "blobio/arena";
+  const STALE_NET_MS = 4500;
+  const SKIN_CACHE = "blobio-skin-v1";
+  const SKIN_CACHE_URL = "/blobio-local-skin";
   const PLAYER_COLORS = [
-    "#ff4d6d",
-    "#ff7b54",
-    "#ffd166",
-    "#06d6a0",
-    "#4cc9f0",
-    "#7b2cbf",
-    "#f72585",
-    "#4895ef",
-    "#80ffdb",
-    "#f94144",
+    "#c45a6e",
+    "#c47a5c",
+    "#c9a85a",
+    "#3aa88a",
+    "#5a9fc4",
+    "#6a4a9e",
+    "#c45a8a",
+    "#4a7eb8",
+    "#5ab8a8",
+    "#c45a5a",
   ];
   const FOOD_COLORS = [
-    "#ff6b6b",
-    "#ffa94d",
-    "#ffe066",
-    "#69db7c",
-    "#4dabf7",
-    "#845ef7",
-    "#f783ac",
-    "#66d9e8",
-    "#ff922b",
-    "#da77f2",
+    "#c46a6a",
+    "#c48a5a",
+    "#c4b06a",
+    "#5aa87a",
+    "#5a9ac4",
+    "#6a5ab0",
+    "#c47a9a",
+    "#5aacc4",
+    "#c4885a",
+    "#a06ab8",
   ];
   const BOT_NAMES = [
     "Waffle", "Noodle", "Pixel", "Mango", "Zigzag", "Ninja", "Soup", "Cactus",
@@ -78,7 +81,11 @@
   let players = [];
   let me = null;
   let selectedColor = PLAYER_COLORS[4];
+  let skinImg = null;
   let best = Number(localStorage.getItem("blobio-best") || 0);
+  const skinFileEl = document.getElementById("skin-file");
+  const skinClearEl = document.getElementById("skin-clear");
+  const skinPreviewEl = document.getElementById("skin-preview");
   let dark =
     localStorage.getItem("blobio-dark") === "1" ||
     (localStorage.getItem("blobio-dark") === null &&
@@ -101,6 +108,67 @@
   let netTimer = 0;
   let eatenQueue = [];
   let remoteCount = 0;
+  const SESSION_KEY = "blobio-session";
+  const tabId = "t" + Math.random().toString(36).slice(2, 10);
+  let sessionChannel = null;
+  try {
+    sessionChannel = new BroadcastChannel("blobio-session");
+  } catch (_) {}
+
+  function claimSession() {
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ id: tabId, t: Date.now() }));
+    if (sessionChannel) sessionChannel.postMessage({ type: "claim", id: tabId });
+  }
+
+  function releaseSession() {
+    try {
+      const raw = localStorage.getItem(SESSION_KEY);
+      if (raw) {
+        const data = JSON.parse(raw);
+        if (data.id === tabId) localStorage.removeItem(SESSION_KEY);
+      }
+    } catch (_) {}
+  }
+
+  function bumpSession() {
+    if (mode !== "play") return;
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ id: tabId, t: Date.now() }));
+  }
+
+  function yieldToOtherTab() {
+    if (mode === "menu") return;
+    netLeave(true);
+    releaseSession();
+    mode = "menu";
+    if (me) {
+      me.dead = true;
+      me.cells.length = 0;
+      me = null;
+    }
+    death.classList.add("hidden");
+    hud.classList.add("hidden");
+    menu.classList.remove("hidden");
+    bestEl.textContent = String(Math.round(best));
+    syncNpcPopulation();
+    setNetStatus("Only one game tab allowed — this tab stopped", "bad");
+  }
+
+  function bindSessionLock() {
+    if (sessionChannel) {
+      sessionChannel.onmessage = (ev) => {
+        const msg = ev.data;
+        if (!msg || msg.id === tabId) return;
+        if (msg.type === "claim") yieldToOtherTab();
+      };
+    }
+    window.addEventListener("storage", (e) => {
+      if (e.key !== SESSION_KEY || !e.newValue) return;
+      try {
+        const data = JSON.parse(e.newValue);
+        if (data.id !== tabId) yieldToOtherTab();
+      } catch (_) {}
+    });
+  }
 
   function applyTheme() {
     document.documentElement.classList.toggle("dark", dark);
@@ -393,6 +461,25 @@
     else fillBots();
   }
 
+  function dropRemotePlayer(id, purgeFirebase) {
+    const before = players.length;
+    players = players.filter((p) => p.id !== id);
+    if (players.length !== before) syncNpcPopulation();
+    if (purgeFirebase && db) {
+      db.ref(`${NET_PATH}/players/${id}`).remove().catch(() => {});
+    }
+  }
+
+  function pruneStaleRemotes() {
+    const now = Date.now();
+    for (const p of players.slice()) {
+      if (!p.isRemote) continue;
+      if (!p.lastNet || now - p.lastNet > STALE_NET_MS) {
+        dropRemotePlayer(p.id, true);
+      }
+    }
+  }
+
   function initWorld() {
     initFood();
     viruses = [];
@@ -472,7 +559,7 @@
     const oy = cell.y;
     cell.mass = each;
     cell.mergeAt = performance.now() + (MERGE_BASE + each * 0.05) * 1000;
-    burst(ox, oy, "#7bed9f", 16, 10);
+    burst(ox, oy, "#6a9e78", 16, 10);
     for (let i = 1; i < pieces; i++) {
       const a = (i / pieces) * Math.PI * 2 + rand(-0.2, 0.2);
       makeCell(
@@ -796,6 +883,8 @@
     }
 
     updateCamera(dt);
+    pruneStaleRemotes();
+    bumpSession();
     netTimer += dt;
     if (netTimer > 0.08) {
       netTimer = 0;
@@ -818,7 +907,7 @@
       death.classList.remove("hidden");
       hud.classList.add("hidden");
       beep(110, 0.25, "sine", 0.07);
-      netLeave(false);
+      netLeave(true);
     }
   }
 
@@ -882,7 +971,7 @@
     const top = camera.y - viewH / 2 / camera.scale;
     const bottom = camera.y + viewH / 2 / camera.scale;
     ctx.beginPath();
-    ctx.strokeStyle = dark ? "rgba(180,210,255,0.06)" : "rgba(40,70,110,0.07)";
+    ctx.strokeStyle = dark ? "rgba(140,170,210,0.045)" : "rgba(50,80,110,0.055)";
     ctx.lineWidth = 1 / camera.scale;
     const x0 = Math.floor(left / step) * step;
     const y0 = Math.floor(top / step) * step;
@@ -895,7 +984,7 @@
       ctx.lineTo(right, y);
     }
     ctx.stroke();
-    ctx.strokeStyle = dark ? "rgba(110, 190, 255, 0.5)" : "rgba(70, 140, 220, 0.4)";
+    ctx.strokeStyle = dark ? "rgba(90, 140, 190, 0.35)" : "rgba(70, 120, 170, 0.32)";
     ctx.lineWidth = 10 / camera.scale;
     ctx.strokeRect(0, 0, WORLD_W, WORLD_H);
   }
@@ -911,9 +1000,9 @@
       if (f.x < left || f.x > right || f.y < top || f.y > bottom) continue;
       const y = f.y + Math.sin(animT * 2.2 + f.bob) * 1.4;
       const g = ctx.createRadialGradient(f.x - f.r * 0.3, y - f.r * 0.35, 0.6, f.x, y, f.r);
-      g.addColorStop(0, "#fff");
-      g.addColorStop(0.22, shade(f.color, 40));
-      g.addColorStop(1, f.color);
+      g.addColorStop(0, shade(f.color, 28));
+      g.addColorStop(0.35, f.color);
+      g.addColorStop(1, shade(f.color, -18));
       ctx.beginPath();
       ctx.fillStyle = g;
       ctx.arc(f.x, y, f.r, 0, Math.PI * 2);
@@ -922,8 +1011,8 @@
     for (const e of ejects) {
       const r = radius(e.mass) * 0.9;
       const g = ctx.createRadialGradient(e.x - r * 0.3, e.y - r * 0.3, 1, e.x, e.y, r);
-      g.addColorStop(0, shade(e.color, 50));
-      g.addColorStop(1, e.color);
+      g.addColorStop(0, shade(e.color, 28));
+      g.addColorStop(1, shade(e.color, -12));
       ctx.beginPath();
       ctx.fillStyle = g;
       ctx.arc(e.x, e.y, r, 0, Math.PI * 2);
@@ -945,16 +1034,16 @@
     }
     ctx.closePath();
     const g = ctx.createRadialGradient(v.x - r * 0.2, v.y - r * 0.25, r * 0.1, v.x, v.y, r);
-    g.addColorStop(0, "#c8ff7a");
-    g.addColorStop(0.55, "#62d63a");
-    g.addColorStop(1, "#2f9e1a");
+    g.addColorStop(0, "#9ec86a");
+    g.addColorStop(0.55, "#4a9e48");
+    g.addColorStop(1, "#2a6e38");
     ctx.fillStyle = g;
     ctx.fill();
     ctx.lineWidth = 3;
-    ctx.strokeStyle = "#237a14";
+    ctx.strokeStyle = "#1e5a2e";
     ctx.stroke();
     ctx.beginPath();
-    ctx.fillStyle = "rgba(255,255,255,0.22)";
+    ctx.fillStyle = "rgba(220,235,245,0.14)";
     ctx.arc(v.x - r * 0.18, v.y - r * 0.2, r * 0.26, 0, Math.PI * 2);
     ctx.fill();
   }
@@ -962,42 +1051,44 @@
   function drawCell(cell) {
     const r = radius(cell.show);
     const p = cell.player;
+    const useSkin = p === me && skinImg && skinImg.complete && skinImg.naturalWidth > 0;
     ctx.save();
     if (p === me) {
-      ctx.shadowColor = rgba(p.color, 0.45);
-      ctx.shadowBlur = Math.min(28, r * 0.28);
+      ctx.shadowColor = rgba(p.color, 0.14);
+      ctx.shadowBlur = Math.min(10, r * 0.1);
     }
-    const g = ctx.createRadialGradient(
-      cell.x - r * 0.28,
-      cell.y - r * 0.34,
-      r * 0.08,
-      cell.x,
-      cell.y + r * 0.1,
-      r
-    );
-    g.addColorStop(0, shade(p.color, 70));
-    g.addColorStop(0.42, p.color);
-    g.addColorStop(1, shade(p.color, -55));
     ctx.beginPath();
     ctx.arc(cell.x, cell.y, r, 0, Math.PI * 2);
-    ctx.fillStyle = g;
-    ctx.fill();
+    if (useSkin) {
+      ctx.fillStyle = p.color;
+      ctx.fill();
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(cell.x, cell.y, r, 0, Math.PI * 2);
+      ctx.clip();
+      const iw = skinImg.naturalWidth;
+      const ih = skinImg.naturalHeight;
+      const scale = Math.max((r * 2) / iw, (r * 2) / ih);
+      const dw = iw * scale;
+      const dh = ih * scale;
+      ctx.drawImage(skinImg, cell.x - dw / 2, cell.y - dh / 2, dw, dh);
+      ctx.restore();
+      ctx.beginPath();
+      ctx.arc(cell.x, cell.y, r, 0, Math.PI * 2);
+    } else {
+      const g = ctx.createRadialGradient(cell.x, cell.y, r * 0.55, cell.x, cell.y, r);
+      g.addColorStop(0, p.color);
+      g.addColorStop(1, shade(p.color, -22));
+      ctx.fillStyle = g;
+      ctx.fill();
+    }
     ctx.shadowBlur = 0;
     ctx.lineWidth = Math.max(2, r * 0.055);
-    ctx.strokeStyle = "rgba(0,0,0,0.22)";
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.fillStyle = "rgba(255,255,255,0.38)";
-    ctx.ellipse(cell.x - r * 0.26, cell.y - r * 0.34, r * 0.34, r * 0.18, -0.55, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.strokeStyle = "rgba(255,255,255,0.2)";
-    ctx.lineWidth = Math.max(1.4, r * 0.03);
-    ctx.arc(cell.x, cell.y, r * 0.8, 0.85, 2.35);
+    ctx.strokeStyle = "rgba(8,16,28,0.28)";
     ctx.stroke();
     if (r * camera.scale > 14) {
-      ctx.fillStyle = "#fff";
-      ctx.strokeStyle = "rgba(0,0,0,0.38)";
+      ctx.fillStyle = "#e8eef6";
+      ctx.strokeStyle = "rgba(8,16,28,0.42)";
       ctx.lineWidth = Math.max(2.6, r * 0.045);
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
@@ -1016,7 +1107,7 @@
   }
 
   function render() {
-    ctx.fillStyle = dark ? "#0c1220" : "#e8eef8";
+    ctx.fillStyle = dark ? "#0a1018" : "#d8e2ec";
     ctx.fillRect(0, 0, viewW, viewH);
     ctx.save();
     ctx.translate(viewW / 2, viewH / 2);
@@ -1046,9 +1137,9 @@
       ctx.globalAlpha = 1;
     }
     ctx.restore();
-    const vg = ctx.createRadialGradient(viewW / 2, viewH / 2, viewH * 0.25, viewW / 2, viewH / 2, viewH * 0.82);
+    const vg = ctx.createRadialGradient(viewW / 2, viewH / 2, viewH * 0.2, viewW / 2, viewH / 2, viewH * 0.88);
     vg.addColorStop(0, "rgba(0,0,0,0)");
-    vg.addColorStop(1, dark ? "rgba(0,0,0,0.42)" : "rgba(20,40,80,0.12)");
+    vg.addColorStop(1, dark ? "rgba(4,10,18,0.55)" : "rgba(30,50,70,0.18)");
     ctx.fillStyle = vg;
     ctx.fillRect(0, 0, viewW, viewH);
     drawMinimap();
@@ -1110,9 +1201,9 @@
 
   function applyRemotePlayer(id, data) {
     if (id === myNetId) return;
-    if (!data || !data.a) {
-      players = players.filter((p) => p.id !== id);
-      syncNpcPopulation();
+    if (!data || !data.a || !data.t || Date.now() - data.t > STALE_NET_MS) {
+      const purge = !!(data && (!data.a || !data.t || Date.now() - data.t > STALE_NET_MS));
+      dropRemotePlayer(id, purge);
       return;
     }
     let p = players.find((x) => x.id === id);
@@ -1183,6 +1274,13 @@
     });
   }
 
+  function ensureNetPresence() {
+    if (!db || !netReady || mode !== "play" || !me || me.dead) return;
+    if (!playerRef) playerRef = db.ref(`${NET_PATH}/players/${myNetId}`);
+    playerRef.onDisconnect().remove();
+    netPublish();
+  }
+
   function netLeave(remove = true) {
     if (playerRef) {
       try {
@@ -1206,6 +1304,7 @@
       db.ref(".info/connected").on("value", (snap) => {
         if (snap.val()) {
           netReady = true;
+          ensureNetPresence();
           setNetStatus("Online", "ok");
         } else {
           netReady = false;
@@ -1239,6 +1338,7 @@
     if (audio && audio.state === "suspended") audio.resume();
     const name = (nickEl.value || "").trim() || "Blob";
     localStorage.setItem("blobio-nick", name);
+    claimSession();
     spawnMe(name);
     mode = "play";
     menu.classList.add("hidden");
@@ -1251,6 +1351,7 @@
   function toMenu() {
     mode = "menu";
     netLeave(true);
+    releaseSession();
     if (me) {
       me.dead = true;
       me.cells.length = 0;
@@ -1316,11 +1417,112 @@
     });
   }
 
+  function updateSkinUi() {
+    const on = !!(skinImg && skinImg.complete && skinImg.naturalWidth);
+    skinClearEl.classList.toggle("hidden", !on);
+    skinPreviewEl.classList.toggle("hidden", !on);
+    if (on) {
+      const pctx = skinPreviewEl.getContext("2d");
+      pctx.clearRect(0, 0, 40, 40);
+      pctx.save();
+      pctx.beginPath();
+      pctx.arc(20, 20, 20, 0, Math.PI * 2);
+      pctx.clip();
+      const iw = skinImg.naturalWidth;
+      const ih = skinImg.naturalHeight;
+      const scale = Math.max(40 / iw, 40 / ih);
+      const dw = iw * scale;
+      const dh = ih * scale;
+      pctx.drawImage(skinImg, 20 - dw / 2, 20 - dh / 2, dw, dh);
+      pctx.restore();
+    }
+  }
+
+  function setSkinFromBlob(blob) {
+    if (!blob) {
+      skinImg = null;
+      updateSkinUi();
+      return;
+    }
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => {
+      if (skinImg && skinImg._objectUrl) URL.revokeObjectURL(skinImg._objectUrl);
+      img._objectUrl = url;
+      skinImg = img;
+      updateSkinUi();
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+    };
+    img.src = url;
+  }
+
+  async function saveSkinToCache(blob) {
+    if (!window.caches) return;
+    try {
+      const cache = await caches.open(SKIN_CACHE);
+      await cache.put(SKIN_CACHE_URL, new Response(blob, { headers: { "Content-Type": blob.type || "image/png" } }));
+    } catch (_) {}
+  }
+
+  async function clearSkinCache() {
+    if (!window.caches) return;
+    try {
+      const cache = await caches.open(SKIN_CACHE);
+      await cache.delete(SKIN_CACHE_URL);
+    } catch (_) {}
+  }
+
+  async function loadSkinFromCache() {
+    if (!window.caches) return;
+    try {
+      const cache = await caches.open(SKIN_CACHE);
+      const res = await cache.match(SKIN_CACHE_URL);
+      if (!res) return;
+      const blob = await res.blob();
+      setSkinFromBlob(blob);
+    } catch (_) {}
+  }
+
+  function compressSkinFile(file) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        const max = 256;
+        let w = img.naturalWidth;
+        let h = img.naturalHeight;
+        const scale = Math.min(1, max / Math.max(w, h));
+        w = Math.max(1, Math.round(w * scale));
+        h = Math.max(1, Math.round(h * scale));
+        const c = document.createElement("canvas");
+        c.width = w;
+        c.height = h;
+        c.getContext("2d").drawImage(img, 0, 0, w, h);
+        c.toBlob(
+          (blob) => {
+            if (blob) resolve(blob);
+            else reject(new Error("skin encode failed"));
+          },
+          "image/jpeg",
+          0.82
+        );
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error("skin load failed"));
+      };
+      img.src = url;
+    });
+  }
+
   function buildColors() {
     for (const c of PLAYER_COLORS) {
       const b = document.createElement("button");
       b.type = "button";
-      b.style.background = `radial-gradient(circle at 32% 28%, #fff 0 12%, ${c} 48%, ${shade(c, -40)})`;
+      b.style.background = `radial-gradient(circle at 32% 28%, ${shade(c, 24)} 0 14%, ${c} 52%, ${shade(c, -28)})`;
       b.setAttribute("aria-label", `Color ${c}`);
       if (c === selectedColor) b.classList.add("selected");
       b.addEventListener("click", () => {
@@ -1332,10 +1534,32 @@
     }
   }
 
+  function bindSkinUi() {
+    skinFileEl.addEventListener("change", async () => {
+      const file = skinFileEl.files && skinFileEl.files[0];
+      skinFileEl.value = "";
+      if (!file || !file.type.startsWith("image/")) return;
+      try {
+        const blob = await compressSkinFile(file);
+        setSkinFromBlob(blob);
+        await saveSkinToCache(blob);
+      } catch (_) {}
+    });
+    skinClearEl.addEventListener("click", async () => {
+      if (skinImg && skinImg._objectUrl) URL.revokeObjectURL(skinImg._objectUrl);
+      skinImg = null;
+      updateSkinUi();
+      await clearSkinCache();
+    });
+  }
+
   nickEl.value = localStorage.getItem("blobio-nick") || "";
   bestEl.textContent = String(Math.round(best));
   applyTheme();
   buildColors();
+  bindSkinUi();
+  loadSkinFromCache();
+  bindSessionLock();
   bindInput();
   resize();
   initWorld();
@@ -1348,5 +1572,12 @@
   }
   requestAnimationFrame(loop);
 
-  window.addEventListener("beforeunload", () => netLeave(true));
+  window.addEventListener("beforeunload", () => {
+    netLeave(true);
+    releaseSession();
+  });
+  window.addEventListener("pagehide", () => {
+    netLeave(true);
+    releaseSession();
+  });
 })();

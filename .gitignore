@@ -7,3 +7,8 @@ preview-*.png
 Thumbs.db
 node_modules/
 firebase-config.js
+.env
+.env.*
+*.pem
+*.key
+serviceAccount*.json
