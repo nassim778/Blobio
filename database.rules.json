@@ -28,6 +28,19 @@
           ".validate": "newData.hasChildren(['n', 's', 't', 'u']) && newData.child('n').isString() && newData.child('n').val().length > 0 && newData.child('n').val().length <= 16 && newData.child('s').isNumber() && newData.child('s').val() >= 0 && newData.child('s').val() <= 100000000 && newData.child('t').isNumber() && newData.child('u').isString() && newData.child('u').val().length > 0 && newData.child('u').val().length <= 128"
         }
       },
+      "chat": {
+        "cleared": {
+          ".write": true,
+          ".validate": "newData.hasChild('e') && newData.child('e').isNumber() && newData.child('e').val() >= 0"
+        },
+        "messages": {
+          ".write": true,
+          "$id": {
+            ".write": true,
+            ".validate": "newData.val() === null || (newData.hasChildren(['n', 'm', 't']) && newData.child('n').isString() && newData.child('n').val().length > 0 && newData.child('n').val().length <= 16 && newData.child('m').isString() && newData.child('m').val().length > 0 && newData.child('m').val().length <= 80 && newData.child('t').isNumber() && newData.child('t').val() >= now - 60000 && newData.child('t').val() <= now + 15000 && (!newData.hasChild('c') || (newData.child('c').isString() && newData.child('c').val().length <= 16)))"
+          }
+        }
+      },
       "users": {
         "$uid": {
           ".write": "auth != null && auth.uid == $uid",

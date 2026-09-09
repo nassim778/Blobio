@@ -34,6 +34,20 @@
       </ol>
     </aside>
 
+    <aside id="chat" class="chat-board">
+      <div class="chat-head">
+        <h3>Public chat</h3>
+        <span id="chat-ttl">10:00</span>
+      </div>
+      <ol id="chat-list">
+        <li class="chat-empty">Connecting…</li>
+      </ol>
+      <form id="chat-form" autocomplete="off">
+        <input id="chat-input" maxlength="80" placeholder="Message…" autocomplete="off" spellcheck="false" />
+        <button type="submit">Send</button>
+      </form>
+    </aside>
+
     <div id="hud" class="hidden">
       <aside id="leaderboard">
         <h2>Leaderboard</h2>
@@ -97,6 +111,7 @@
             <span><kbd>Space</kbd> split</span>
             <span><kbd>W</kbd> eject</span>
             <span><kbd>Esc</kbd> exit</span>
+            <span><kbd>Enter</kbd> chat</span>
           </div>
         </div>
       </div>

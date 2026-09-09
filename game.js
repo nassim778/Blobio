@@ -25,6 +25,9 @@
   const NET_PATH = "blobio/arena";
   const HALL_PATH = "blobio/hall";
   const USERS_PATH = "blobio/users";
+  const CHAT_PATH = "blobio/chat";
+  const CHAT_TTL_MS = 10 * 60 * 1000;
+  const CHAT_MAX = 60;
   const HALL_STORE = 15;
   const HALL_SHOW = 10;
   const STALE_NET_MS = 4500;
@@ -78,6 +81,11 @@
   const accountStatsEl = document.getElementById("account-stats");
   const hallListEl = document.getElementById("hall-list");
   const hallBoardEl = document.getElementById("hall");
+  const chatBoardEl = document.getElementById("chat");
+  const chatListEl = document.getElementById("chat-list");
+  const chatInputEl = document.getElementById("chat-input");
+  const chatFormEl = document.getElementById("chat-form");
+  const chatTtlEl = document.getElementById("chat-ttl");
   const creditEl = document.querySelector(".credit");
   const googleBtn = document.getElementById("google-btn");
   const authUserEl = document.getElementById("auth-user");
@@ -117,6 +125,8 @@
   let level = 1;
   let peakScore = 0;
   let killedSelf = false;
+  let lastChatSent = 0;
+  let chatRaw = null;
   const skinFileEl = document.getElementById("skin-file");
   const skinClearEl = document.getElementById("skin-clear");
   const skinPreviewEl = document.getElementById("skin-preview");
@@ -1529,6 +1539,7 @@
     const onMenu = mode === "menu";
     if (hallBoardEl) hallBoardEl.classList.toggle("hidden", !onMenu);
     if (creditEl) creditEl.classList.toggle("hidden", !onMenu);
+    if (chatBoardEl) chatBoardEl.classList.toggle("in-play", mode === "play");
   }
 
   function updateAuthUi() {
@@ -1669,11 +1680,99 @@
       .catch(() => {});
   }
 
+  function chatEpoch(now = Date.now()) {
+    return Math.floor(now / CHAT_TTL_MS);
+  }
+
+  function chatWindowStart(now = Date.now()) {
+    return chatEpoch(now) * CHAT_TTL_MS;
+  }
+
+  function updateChatTtl() {
+    if (!chatTtlEl) return;
+    const left = Math.max(0, chatWindowStart() + CHAT_TTL_MS - Date.now());
+    const m = Math.floor(left / 60000);
+    const s = Math.floor((left % 60000) / 1000);
+    chatTtlEl.textContent = `${m}:${String(s).padStart(2, "0")}`;
+  }
+
+  function renderChat(list) {
+    if (!chatListEl) return;
+    chatRaw = list;
+    const minT = chatWindowStart();
+    const rows = (Array.isArray(list) ? list : list && typeof list === "object" ? Object.values(list) : [])
+      .filter((r) => r && typeof r.n === "string" && typeof r.m === "string" && typeof r.t === "number" && r.t >= minT)
+      .sort((a, b) => a.t - b.t || 0)
+      .slice(-CHAT_MAX);
+    if (!rows.length) {
+      chatListEl.innerHTML = `<li class="chat-empty">Public chat · wipes every 10 min</li>`;
+      return;
+    }
+    const nearBottom = chatListEl.scrollHeight - chatListEl.scrollTop - chatListEl.clientHeight < 48;
+    chatListEl.innerHTML = rows
+      .map((row) => {
+        const safeColor = typeof row.c === "string" && /^#[0-9a-fA-F]{3,8}$/.test(row.c) ? row.c : "";
+        const color = safeColor ? ` style="color:${safeColor}"` : "";
+        return `<li><span class="chat-name"${color}>${escapeHtml(String(row.n).slice(0, 16))}</span>${escapeHtml(String(row.m).slice(0, 80))}</li>`;
+      })
+      .join("");
+    if (nearBottom) chatListEl.scrollTop = chatListEl.scrollHeight;
+  }
+
+  function maybeWipeChat() {
+    if (!db || !netReady) return;
+    const epoch = chatEpoch();
+    db.ref(`${CHAT_PATH}/cleared`)
+      .transaction((cur) => {
+        const e = cur && typeof cur.e === "number" ? cur.e : -1;
+        if (e >= epoch) return;
+        return { e: epoch, t: Date.now() };
+      })
+      .then((res) => {
+        if (res.committed) db.ref(`${CHAT_PATH}/messages`).remove().catch(() => {});
+      })
+      .catch(() => {});
+  }
+
+  function isTyping() {
+    const el = document.activeElement;
+    return el === nickEl || el === chatInputEl;
+  }
+
+  function sendChat(e) {
+    if (e) e.preventDefault();
+    if (!db || !netReady) return;
+    const m = String(chatInputEl && chatInputEl.value ? chatInputEl.value : "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 80);
+    if (!m) return;
+    const now = Date.now();
+    if (now - lastChatSent < 900) return;
+    lastChatSent = now;
+    const n = ((me && me.name) || (nickEl && nickEl.value) || "Blob").trim().slice(0, 16) || "Blob";
+    db.ref(`${CHAT_PATH}/messages`)
+      .push({
+        n,
+        m,
+        t: now,
+        c: selectedColor,
+      })
+      .catch(() => {});
+    if (chatInputEl) chatInputEl.value = "";
+    maybeWipeChat();
+  }
+
+  function bindChat() {
+    if (chatFormEl) chatFormEl.addEventListener("submit", sendChat);
+  }
+
   function connectFirebase() {
     if (!window.firebase || !window.BLOBIO_FIREBASE) {
       netError = "offline";
       setNetStatus("Offline · bots only", "bad");
       if (hallListEl) hallListEl.innerHTML = `<li class="hall-empty">Offline</li>`;
+      if (chatListEl) chatListEl.innerHTML = `<li class="chat-empty">Offline</li>`;
       if (googleBtn) googleBtn.disabled = true;
       return;
     }
@@ -1696,6 +1795,7 @@
           netReady = true;
           ensureNetPresence();
           setNetStatus("Online", "ok");
+          maybeWipeChat();
         } else {
           netReady = false;
           setNetStatus("Reconnecting…");
@@ -1724,10 +1824,20 @@
           if (hallListEl) hallListEl.innerHTML = `<li class="hall-empty">Unavailable</li>`;
         }
       );
+      db.ref(`${CHAT_PATH}/messages`)
+        .limitToLast(CHAT_MAX)
+        .on(
+          "value",
+          (snap) => renderChat(snap.val()),
+          () => {
+            if (chatListEl) chatListEl.innerHTML = `<li class="chat-empty">Unavailable</li>`;
+          }
+        );
     } catch (err) {
       netError = String(err && err.message ? err.message : err);
       setNetStatus("Offline · bots only", "bad");
       if (hallListEl) hallListEl.innerHTML = `<li class="hall-empty">Offline</li>`;
+      if (chatListEl) chatListEl.innerHTML = `<li class="chat-empty">Offline</li>`;
     }
   }
 
@@ -1811,6 +1921,13 @@
       mouse.down = false;
     });
     window.addEventListener("keydown", (e) => {
+      if (isTyping()) {
+        if (e.code === "Escape") {
+          e.preventDefault();
+          if (chatInputEl) chatInputEl.blur();
+        }
+        return;
+      }
       if (e.code === "Space") {
         e.preventDefault();
         if (mode === "play" && me && !me.dead) splitPlayer(me);
@@ -1823,8 +1940,10 @@
       } else if (e.code === "KeyD" && document.activeElement !== nickEl) {
         e.preventDefault();
         toggleTheme();
-      } else if (e.code === "Enter" && mode === "menu") {
-        startGame();
+      } else if (e.code === "Enter") {
+        e.preventDefault();
+        if (mode === "menu") startGame();
+        else if (mode === "play" && chatInputEl) chatInputEl.focus();
       }
     });
     document.getElementById("play").addEventListener("click", startGame);
@@ -2002,6 +2121,16 @@
   loadSkinFromCache();
   bindSessionLock();
   bindInput();
+  bindChat();
+  updateChatTtl();
+  setInterval(() => {
+    const epoch = chatEpoch();
+    updateChatTtl();
+    if (epoch !== chatEpoch(Date.now() - 1100)) {
+      renderChat(chatRaw);
+      maybeWipeChat();
+    }
+  }, 1000);
   resize();
   initWorld();
   connectFirebase();
