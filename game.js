@@ -2,6 +2,8 @@
   const WORLD_W = 5600;
   const WORLD_H = 5600;
   const FOOD_COUNT = 4500;
+  const VIRUS_FOOD_CAP = 200;
+  const VIRUS_SPIT_INTERVAL = 0.38;
   const BOT_COUNT = 18;
   const VIRUS_COUNT = 16;
   const START_MASS = 22;
@@ -9,13 +11,22 @@
   const EJECT_MASS = 14;
   const VIRUS_MASS = 92;
   const VIRUS_MAX = 180;
+  const VIRUS_EAT_MASS = 150;
   const EAT_RATIO = 1.22;
-  const MAX_CELLS = 16;
+  const MAX_CELLS = 20;
   const SPLIT_MIN = 36;
+  const CELL_MASS_BUDGET = 16;
   const EJECT_MIN = 32;
+  const EJECT_LIFE = 15;
+  const MOVE_BURN = 0.72;
+  const MOVE_MIN_MASS = 12;
   const MERGE_BASE = 14;
   const FOOD_SEED = 77421;
   const NET_PATH = "blobio/arena";
+  const HALL_PATH = "blobio/hall";
+  const USERS_PATH = "blobio/users";
+  const HALL_STORE = 15;
+  const HALL_SHOW = 10;
   const STALE_NET_MS = 4500;
   const SKIN_CACHE = "blobio-skin-v1";
   const SKIN_CACHE_URL = "/blobio-local-skin";
@@ -62,8 +73,24 @@
   const nickEl = document.getElementById("nick");
   const colorsEl = document.getElementById("colors");
   const bestEl = document.getElementById("best-score");
+  const levelEl = document.getElementById("level-score");
+  const gloryEl = document.getElementById("glory-score");
+  const accountStatsEl = document.getElementById("account-stats");
+  const hallListEl = document.getElementById("hall-list");
+  const hallBoardEl = document.getElementById("hall");
+  const creditEl = document.querySelector(".credit");
+  const googleBtn = document.getElementById("google-btn");
+  const authUserEl = document.getElementById("auth-user");
+  const authAvatarEl = document.getElementById("auth-avatar");
+  const authNameEl = document.getElementById("auth-name");
+  const authLevelEl = document.getElementById("auth-level");
+  const authSignOutBtn = document.getElementById("auth-signout");
+  const deathPeakEl = document.getElementById("death-peak");
   const deathScoreEl = document.getElementById("death-score");
   const deathBestEl = document.getElementById("death-best");
+  const deathAccountEl = document.getElementById("death-account");
+  const deathLevelEl = document.getElementById("death-level");
+  const deathGloryEl = document.getElementById("death-glory");
   const themeBtn = document.getElementById("theme-toggle");
   const menuNet = document.getElementById("menu-net");
   const hudNet = document.getElementById("hud-net");
@@ -74,7 +101,9 @@
   let viewW = 0;
   let viewH = 0;
   let foods = [];
+  let virusFoods = [];
   let viruses = [];
+  let virusSeq = 0;
   let ejects = [];
   let pops = [];
   let floats = [];
@@ -83,6 +112,9 @@
   let selectedColor = PLAYER_COLORS[4];
   let skinImg = null;
   let best = Number(localStorage.getItem("blobio-best") || 0);
+  let glory = 0;
+  let level = 1;
+  let peakScore = 0;
   const skinFileEl = document.getElementById("skin-file");
   const skinClearEl = document.getElementById("skin-clear");
   const skinPreviewEl = document.getElementById("skin-preview");
@@ -101,6 +133,8 @@
   let lbTimer = 0;
   let mode = "menu";
   let db = null;
+  let auth = null;
+  let authUser = null;
   let netReady = false;
   let netError = "";
   let myNetId = "p" + Math.random().toString(36).slice(2, 10);
@@ -274,11 +308,53 @@
 
   function spawnVirus(x, y, mass) {
     viruses.push({
+      id: ++virusSeq,
       x: x ?? rand(200, WORLD_W - 200),
       y: y ?? rand(200, WORLD_H - 200),
       mass: mass ?? VIRUS_MASS,
       angle: rand(0, Math.PI * 2),
+      spitT: rand(0, VIRUS_SPIT_INTERVAL),
+      spitA: rand(0, Math.PI * 2),
     });
+  }
+
+  function countVirusFood(virusId) {
+    let n = 0;
+    for (const f of virusFoods) if (f.virusId === virusId) n++;
+    return n;
+  }
+
+  function spitVirusFood(v) {
+    if (countVirusFood(v.id) >= VIRUS_FOOD_CAP) return false;
+    v.spitA += rand(0.4, 0.75);
+    const a = v.spitA + rand(-0.06, 0.06);
+    const edge = radius(v.mass) * 0.82;
+    const speed = rand(36, 78);
+    virusFoods.push({
+      virusId: v.id,
+      x: v.x + Math.cos(a) * edge,
+      y: v.y + Math.sin(a) * edge,
+      vx: Math.cos(a) * speed,
+      vy: Math.sin(a) * speed,
+      mass: FOOD_MASS,
+      color: FOOD_COLORS[(Math.random() * FOOD_COLORS.length) | 0],
+      r: 4.2 + Math.random() * 2.8,
+      age: 0,
+    });
+    return true;
+  }
+
+  function updateVirusSpit(dt) {
+    for (const v of viruses) {
+      v.spitT += dt;
+      while (v.spitT >= VIRUS_SPIT_INTERVAL) {
+        v.spitT -= VIRUS_SPIT_INTERVAL;
+        if (!spitVirusFood(v)) {
+          v.spitT = 0;
+          break;
+        }
+      }
+    }
   }
 
   function makeCell(player, x, y, mass, bx = 0, by = 0) {
@@ -424,8 +500,7 @@
         y: 20 + rng() * (WORLD_H - 40),
         mass: FOOD_MASS,
         color: FOOD_COLORS[(rng() * FOOD_COLORS.length) | 0],
-        r: 5.6 + rng() * 4.0,
-        bob: rng() * Math.PI * 2,
+        r: 4.5 + rng() * 2.2,
         alive: true,
         hideUntil: 0,
       });
@@ -482,6 +557,7 @@
 
   function initWorld() {
     initFood();
+    virusFoods = [];
     viruses = [];
     ejects = [];
     pops = [];
@@ -502,17 +578,26 @@
     }
     const pos = randomEmpty();
     me = makePlayer(name, selectedColor, true, pos.x, pos.y, START_MASS, myNetId);
+    peakScore = Math.round(START_MASS);
     camera.x = pos.x;
     camera.y = pos.y;
     camera.scale = 1.05;
   }
 
+  function cellLimit(p) {
+    const bySize = Math.max(1, Math.floor(totalMass(p) / CELL_MASS_BUDGET));
+    return Math.min(MAX_CELLS, bySize);
+  }
+
   function splitPlayer(p) {
-    if (p.cells.length >= MAX_CELLS) return;
+    let limit = cellLimit(p);
+    if (p.cells.length >= limit) return;
     const aim = p.isHuman && !p.isRemote ? worldMouse() : { x: p.ai.tx, y: p.ai.ty };
-    const originals = p.cells.slice();
+    const originals = p.cells.slice().sort((a, b) => b.mass - a.mass);
+    let did = false;
     for (const cell of originals) {
-      if (p.cells.length >= MAX_CELLS) break;
+      limit = cellLimit(p);
+      if (p.cells.length >= limit) break;
       if (cell.mass < SPLIT_MIN) continue;
       const dx = aim.x - cell.x;
       const dy = aim.y - cell.y;
@@ -523,8 +608,9 @@
       cell.mergeAt = performance.now() + (MERGE_BASE + cell.mass * 0.045) * 1000;
       const boost = 780 + radius(cell.mass) * 2;
       makeCell(p, cell.x + nx * 8, cell.y + ny * 8, cell.mass, nx * boost, ny * boost);
+      did = true;
     }
-    if (p === me) beep(520, 0.08, "triangle", 0.05);
+    if (did && p === me) beep(520, 0.08, "triangle", 0.05);
   }
 
   function ejectPlayer(p) {
@@ -552,7 +638,7 @@
   }
 
   function explodeCell(player, cell) {
-    const slots = MAX_CELLS - player.cells.length + 1;
+    const slots = cellLimit(player) - player.cells.length + 1;
     const pieces = Math.max(2, Math.min(slots, 12));
     const each = Math.max(12, cell.mass / pieces);
     const ox = cell.x;
@@ -628,6 +714,18 @@
     cell.x = clamp(cell.x, r, WORLD_W - r);
     cell.y = clamp(cell.y, r, WORLD_H - r);
     cell.show += (cell.mass - cell.show) * Math.min(1, 10 * dt);
+  }
+
+  function applyMoveFuel(p, dt) {
+    if (!p || p.dead || p.isRemote) return;
+    for (const cell of p.cells) {
+      const spd = hypot(cell.vx + cell.bx, cell.vy + cell.by);
+      if (spd < 28) continue;
+      const full = Math.max(40, speedFor(cell.mass));
+      const sizeFactor = 0.4 + Math.sqrt(Math.max(1, cell.mass)) * 0.09;
+      const burn = MOVE_BURN * Math.min(1.45, spd / full) * sizeFactor * dt;
+      cell.mass = Math.max(MOVE_MIN_MASS, cell.mass - burn);
+    }
   }
 
   function interpolateRemote(p, dt) {
@@ -752,7 +850,23 @@
       if (!p.isHuman && now > p.ai.retarget) retargetBot(p, now);
       const target = p.isHuman ? aim : { x: p.ai.tx, y: p.ai.ty };
       for (const cell of p.cells) moveCell(cell, target.x, target.y, dt);
+      if (p === me) applyMoveFuel(p, dt);
       separateSamePlayer(p);
+    }
+
+    for (let i = virusFoods.length - 1; i >= 0; i--) {
+      const f = virusFoods[i];
+      f.age += dt;
+      f.vx *= Math.pow(0.02, dt);
+      f.vy *= Math.pow(0.02, dt);
+      f.x += f.vx * dt;
+      f.y += f.vy * dt;
+      f.x = clamp(f.x, 6, WORLD_W - 6);
+      f.y = clamp(f.y, 6, WORLD_H - 6);
+      if (f.age > 0.45 && hypot(f.vx, f.vy) < 8) {
+        f.vx = 0;
+        f.vy = 0;
+      }
     }
 
     for (const p of players) {
@@ -767,6 +881,13 @@
             cell.mass += f.mass;
             hideFood(f, 9000);
             if (p === me) eatenQueue.push(f.id);
+          }
+        }
+        for (let i = virusFoods.length - 1; i >= 0; i--) {
+          const f = virusFoods[i];
+          if (hypot(cell.x - f.x, cell.y - f.y) < r - 1) {
+            cell.mass += f.mass;
+            virusFoods.splice(i, 1);
           }
         }
       }
@@ -814,7 +935,7 @@
           if (eaten) break;
         }
       }
-      if (eaten || (e.age > 1.1 && hypot(e.vx, e.vy) < 18)) {
+      if (eaten || e.age >= EJECT_LIFE) {
         ejects.splice(i, 1);
       }
     }
@@ -829,8 +950,9 @@
         v.x = clamp(v.x, r, WORLD_W - r);
         v.y = clamp(v.y, r, WORLD_H - r);
       }
-      v.angle += dt * 0.4;
+      v.angle += dt * 0.12;
     }
+    updateVirusSpit(dt);
 
     for (const p of players) {
       if (p.dead || p.isRemote) continue;
@@ -841,9 +963,23 @@
           if (cell.mass > v.mass * 1.18 && hypot(cell.x - v.x, cell.y - v.y) < radius(cell.mass) - vr * 0.25) {
             const vi = viruses.indexOf(v);
             if (vi >= 0) viruses.splice(vi, 1);
-            explodeCell(p, cell);
+            if (p.cells.length >= cellLimit(p)) {
+              cell.mass += VIRUS_EAT_MASS;
+              burst(v.x, v.y, "#3f7a52", 18, 12);
+              if (p === me) {
+                floatText(v.x, v.y, `+${VIRUS_EAT_MASS}`);
+                beep(280, 0.1, "sine", 0.05);
+              }
+            } else {
+              explodeCell(p, cell);
+              cell.mass += VIRUS_EAT_MASS;
+              burst(v.x, v.y, "#3f7a52", 14, 10);
+              if (p === me) {
+                floatText(v.x, v.y, `+${VIRUS_EAT_MASS}`);
+                beep(140, 0.16, "sawtooth", 0.04);
+              }
+            }
             if (viruses.length < VIRUS_COUNT) spawnVirus();
-            if (p === me) beep(140, 0.16, "sawtooth", 0.04);
             break;
           }
         }
@@ -899,15 +1035,26 @@
 
     if (mode === "play" && me && me.dead) {
       mode = "dead";
-      const score = Math.round(Number(scoreEl.textContent) || 0);
-      best = Math.max(best, score);
+      const endScore = Math.round(Number(scoreEl.textContent) || 0);
+      const peak = Math.max(peakScore, endScore);
+      const name = me.name || (nickEl.value || "").trim() || "Blob";
+      best = Math.max(best, peak);
       localStorage.setItem("blobio-best", String(best));
-      deathScoreEl.textContent = String(score);
+      let gained = 0;
+      if (hasAccount()) gained = awardGlory(peak);
+      saveCloudBest();
+      if (deathPeakEl) deathPeakEl.textContent = String(peak);
+      deathScoreEl.textContent = String(endScore);
       deathBestEl.textContent = String(Math.round(best));
+      if (deathAccountEl) deathAccountEl.classList.toggle("hidden", !hasAccount());
+      if (deathLevelEl) deathLevelEl.textContent = String(level);
+      if (deathGloryEl) deathGloryEl.textContent = String(gained);
       death.classList.remove("hidden");
       hud.classList.add("hidden");
+      syncMenuChrome();
       beep(110, 0.25, "sine", 0.07);
       netLeave(true);
+      submitHallScore(name, peak);
     }
   }
 
@@ -930,8 +1077,10 @@
     camera.x += (target.x - camera.x) * Math.min(1, 5 * dt);
     camera.y += (target.y - camera.y) * Math.min(1, 5 * dt);
     const spread = me && me.cells.length > 1 ? 1 + (me.cells.length - 1) * 0.045 : 1;
-    const want = clamp(0.95 / (Math.sqrt(target.mass) * 0.055 * spread), 0.28, 1.15);
+    const sizeZoom = 1.08 / (Math.sqrt(Math.max(12, target.mass)) * 0.055 * spread);
+    const want = clamp(sizeZoom, 0.34, 1.18);
     camera.scale += (want - camera.scale) * Math.min(1, 3 * dt);
+    camera.scale = clamp(camera.scale, 0.34, 1.18);
   }
 
   function refreshHud() {
@@ -949,8 +1098,9 @@
     if (me && !me.dead) {
       const score = Math.round(totalMass(me));
       scoreEl.textContent = String(score);
-      if (score > best) {
-        best = score;
+      if (score > peakScore) peakScore = score;
+      if (peakScore > best) {
+        best = peakScore;
         localStorage.setItem("blobio-best", String(best));
       }
     }
@@ -998,53 +1148,50 @@
     for (const f of foods) {
       if (!f.alive) continue;
       if (f.x < left || f.x > right || f.y < top || f.y > bottom) continue;
-      const y = f.y + Math.sin(animT * 2.2 + f.bob) * 1.4;
-      const g = ctx.createRadialGradient(f.x - f.r * 0.3, y - f.r * 0.35, 0.6, f.x, y, f.r);
-      g.addColorStop(0, shade(f.color, 28));
-      g.addColorStop(0.35, f.color);
-      g.addColorStop(1, shade(f.color, -18));
       ctx.beginPath();
-      ctx.fillStyle = g;
-      ctx.arc(f.x, y, f.r, 0, Math.PI * 2);
+      ctx.fillStyle = f.color;
+      ctx.arc(f.x, f.y, f.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    for (const f of virusFoods) {
+      if (f.x < left || f.x > right || f.y < top || f.y > bottom) continue;
+      ctx.beginPath();
+      ctx.fillStyle = f.color;
+      ctx.arc(f.x, f.y, f.r, 0, Math.PI * 2);
       ctx.fill();
     }
     for (const e of ejects) {
       const r = radius(e.mass) * 0.9;
-      const g = ctx.createRadialGradient(e.x - r * 0.3, e.y - r * 0.3, 1, e.x, e.y, r);
-      g.addColorStop(0, shade(e.color, 28));
-      g.addColorStop(1, shade(e.color, -12));
       ctx.beginPath();
-      ctx.fillStyle = g;
+      ctx.fillStyle = e.color;
       ctx.arc(e.x, e.y, r, 0, Math.PI * 2);
       ctx.fill();
     }
   }
 
   function drawVirus(v) {
-    const r = radius(v.mass) * 0.92;
-    const spikes = 20;
+    const r = radius(v.mass) * 0.9;
+    const spikes = 16;
+    const outer = r;
+    const inner = r * 0.72;
     ctx.beginPath();
-    for (let i = 0; i <= spikes * 2; i++) {
+    for (let i = 0; i < spikes * 2; i++) {
       const a = v.angle + (i / (spikes * 2)) * Math.PI * 2;
-      const rr = i % 2 === 0 ? r : r * 0.76;
+      const rr = i % 2 === 0 ? outer : inner;
       const x = v.x + Math.cos(a) * rr;
       const y = v.y + Math.sin(a) * rr;
       if (i === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     }
     ctx.closePath();
-    const g = ctx.createRadialGradient(v.x - r * 0.2, v.y - r * 0.25, r * 0.1, v.x, v.y, r);
-    g.addColorStop(0, "#9ec86a");
-    g.addColorStop(0.55, "#4a9e48");
-    g.addColorStop(1, "#2a6e38");
-    ctx.fillStyle = g;
+    ctx.fillStyle = "#3f7a52";
     ctx.fill();
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = "#1e5a2e";
+    ctx.lineWidth = Math.max(2, r * 0.06);
+    ctx.strokeStyle = "#244a32";
     ctx.stroke();
     ctx.beginPath();
-    ctx.fillStyle = "rgba(220,235,245,0.14)";
-    ctx.arc(v.x - r * 0.18, v.y - r * 0.2, r * 0.26, 0, Math.PI * 2);
+    ctx.arc(v.x, v.y, inner * 0.78, 0, Math.PI * 2);
+    ctx.fillStyle = "#356846";
     ctx.fill();
   }
 
@@ -1086,21 +1233,28 @@
     ctx.lineWidth = Math.max(2, r * 0.055);
     ctx.strokeStyle = "rgba(8,16,28,0.28)";
     ctx.stroke();
-    if (r * camera.scale > 14) {
+    if (r * camera.scale > 10) {
       ctx.fillStyle = "#e8eef6";
-      ctx.strokeStyle = "rgba(8,16,28,0.42)";
-      ctx.lineWidth = Math.max(2.6, r * 0.045);
+      ctx.strokeStyle = "rgba(8,16,28,0.45)";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      const font = Math.max(11, Math.min(30, r * 0.42));
-      ctx.font = `800 ${font}px Nunito, sans-serif`;
-      ctx.strokeText(p.name, cell.x, cell.y - font * 0.12);
-      ctx.fillText(p.name, cell.x, cell.y - font * 0.12);
-      if (r * camera.scale > 22) {
-        ctx.font = `800 ${font * 0.52}px Nunito, sans-serif`;
+      let font = r * 0.4;
+      ctx.font = `800 ${font}px Syne, DM Sans, sans-serif`;
+      const maxW = r * 1.55;
+      const nameW = ctx.measureText(p.name).width || 1;
+      if (nameW > maxW) font *= maxW / nameW;
+      font = Math.max(9, font);
+      ctx.font = `800 ${font}px Syne, DM Sans, sans-serif`;
+      ctx.lineWidth = Math.max(1.8, font * 0.14);
+      ctx.strokeText(p.name, cell.x, cell.y - font * 0.14);
+      ctx.fillText(p.name, cell.x, cell.y - font * 0.14);
+      if (r * camera.scale > 18) {
+        const mFont = Math.max(8, font * 0.52);
+        ctx.font = `800 ${mFont}px Syne, DM Sans, sans-serif`;
+        ctx.lineWidth = Math.max(1.4, mFont * 0.14);
         const mass = String(Math.round(cell.mass));
-        ctx.strokeText(mass, cell.x, cell.y + font * 0.58);
-        ctx.fillText(mass, cell.x, cell.y + font * 0.58);
+        ctx.strokeText(mass, cell.x, cell.y + font * 0.55);
+        ctx.fillText(mass, cell.x, cell.y + font * 0.55);
       }
     }
     ctx.restore();
@@ -1131,7 +1285,7 @@
     for (const f of floats) {
       ctx.globalAlpha = Math.max(0, f.life / 0.7);
       ctx.fillStyle = dark ? "#f2f6fb" : "#16324f";
-      ctx.font = "800 16px Nunito, sans-serif";
+      ctx.font = "800 16px Syne, DM Sans, sans-serif";
       ctx.textAlign = "center";
       ctx.fillText(f.text, f.x, f.y);
       ctx.globalAlpha = 1;
@@ -1292,15 +1446,212 @@
     playerRef = null;
   }
 
+  function hasAccount() {
+    return !!(authUser && !authUser.isAnonymous);
+  }
+
+  function gloryToReachLevel(lvl) {
+    const n = Math.max(1, Math.min(99, Math.floor(lvl)));
+    if (n <= 1) return 0;
+    let total = 0;
+    for (let i = 1; i < n; i++) total += Math.round(35 + i * 30 + i * i * 2.2);
+    return total;
+  }
+
+  function levelFromGlory(g) {
+    const gloryPts = Math.max(0, Number(g) || 0);
+    let lvl = 1;
+    while (lvl < 99 && gloryPts >= gloryToReachLevel(lvl + 1)) lvl++;
+    return lvl;
+  }
+
+  function syncLevelFromGlory() {
+    level = hasAccount() ? levelFromGlory(glory) : 1;
+    return level;
+  }
+
+  function awardGlory(score) {
+    if (!hasAccount()) return 0;
+    const gained = Math.max(0, Math.round(Number(score) || 0));
+    if (gained <= 0) {
+      syncLevelFromGlory();
+      refreshLevelUi();
+      return 0;
+    }
+    glory += gained;
+    syncLevelFromGlory();
+    refreshLevelUi();
+    return gained;
+  }
+
+  function refreshLevelUi() {
+    const account = hasAccount();
+    syncLevelFromGlory();
+    if (accountStatsEl) accountStatsEl.classList.toggle("hidden", !account);
+    if (deathAccountEl) deathAccountEl.classList.toggle("hidden", !account || mode !== "dead");
+    if (levelEl) levelEl.textContent = String(level);
+    if (gloryEl) gloryEl.textContent = String(Math.round(glory));
+    if (authLevelEl) authLevelEl.textContent = `Lv ${level} · ${Math.round(glory)} glory`;
+    if (deathLevelEl) deathLevelEl.textContent = String(level);
+  }
+
+  function syncMenuChrome() {
+    const onMenu = mode === "menu";
+    if (hallBoardEl) hallBoardEl.classList.toggle("hidden", !onMenu);
+    if (creditEl) creditEl.classList.toggle("hidden", !onMenu);
+  }
+
+  function updateAuthUi() {
+    const signedIn = hasAccount();
+    if (googleBtn) googleBtn.classList.toggle("hidden", signedIn);
+    if (authUserEl) authUserEl.classList.toggle("hidden", !signedIn);
+    if (!signedIn) {
+      glory = 0;
+      level = 1;
+    }
+    refreshLevelUi();
+    if (!signedIn) return;
+    const name = authUser.displayName || authUser.email || "Player";
+    if (authNameEl) authNameEl.textContent = name;
+    if (authAvatarEl) {
+      if (authUser.photoURL) {
+        authAvatarEl.src = authUser.photoURL;
+        authAvatarEl.classList.remove("hidden");
+      } else {
+        authAvatarEl.removeAttribute("src");
+        authAvatarEl.classList.add("hidden");
+      }
+    }
+  }
+
+  function loadCloudBest(uid) {
+    if (!db || !uid) return;
+    db.ref(`${USERS_PATH}/${uid}`)
+      .once("value")
+      .then((snap) => {
+        const data = snap.val() || {};
+        const cloudBest = Number(data.best || 0);
+        const cloudGlory = Number(data.glory || 0);
+        if (cloudBest > best) {
+          best = cloudBest;
+          localStorage.setItem("blobio-best", String(best));
+        }
+        glory = Math.max(0, cloudGlory);
+        if (bestEl) bestEl.textContent = String(Math.round(best));
+        syncLevelFromGlory();
+        refreshLevelUi();
+        saveCloudBest();
+      })
+      .catch(() => {});
+  }
+
+  function saveCloudBest() {
+    if (!db || !hasAccount()) return;
+    syncLevelFromGlory();
+    db.ref(`${USERS_PATH}/${authUser.uid}`).update({
+      best: Math.round(best),
+      glory: Math.round(glory),
+      level,
+      nick: String((nickEl && nickEl.value) || authUser.displayName || "Blob").slice(0, 16),
+      t: Date.now(),
+    }).catch(() => {});
+  }
+
+  function signInWithGoogle() {
+    if (!auth) {
+      setNetStatus("Auth unavailable", "bad");
+      return;
+    }
+    if (googleBtn) googleBtn.disabled = true;
+    const provider = new firebase.auth.GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: "select_account" });
+    auth
+      .signInWithPopup(provider)
+      .catch((err) => {
+        const code = err && err.code ? String(err.code) : "";
+        if (code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") return;
+        setNetStatus("Google sign-in failed", "bad");
+      })
+      .finally(() => {
+        if (googleBtn) googleBtn.disabled = false;
+      });
+  }
+
+  function signOutAuth() {
+    if (!auth) return;
+    auth.signOut().catch(() => {});
+  }
+
+  function bindAuthUi() {
+    if (googleBtn) googleBtn.addEventListener("click", signInWithGoogle);
+    if (authSignOutBtn) authSignOutBtn.addEventListener("click", signOutAuth);
+  }
+
+  function normalizeHall(list) {
+    const rows = Array.isArray(list) ? list : list && typeof list === "object" ? Object.values(list) : [];
+    return rows
+      .filter((r) => r && typeof r.n === "string" && typeof r.s === "number" && r.s >= 0)
+      .map((r) => ({
+        n: String(r.n).slice(0, 16),
+        s: Math.round(r.s),
+        t: typeof r.t === "number" ? r.t : 0,
+      }))
+      .sort((a, b) => b.s - a.s || a.t - b.t)
+      .slice(0, HALL_STORE);
+  }
+
+  function renderHall(list) {
+    if (!hallListEl) return;
+    const top = normalizeHall(list).slice(0, HALL_SHOW);
+    if (!top.length) {
+      hallListEl.innerHTML = `<li class="hall-empty">No records yet</li>`;
+      return;
+    }
+    hallListEl.innerHTML = top
+      .map(
+        (row, i) =>
+          `<li><span>${i + 1}. ${escapeHtml(row.n)}</span><span class="hall-score">${row.s}</span></li>`
+      )
+      .join("");
+  }
+
+  function submitHallScore(name, score) {
+    if (!db || !netReady) return;
+    const s = Math.round(Number(score) || 0);
+    if (s <= 0) return;
+    const n = String(name || "Blob").trim().slice(0, 16) || "Blob";
+    db.ref(HALL_PATH)
+      .transaction((current) => {
+        const rows = normalizeHall(current);
+        if (rows.length >= HALL_STORE && s <= rows[rows.length - 1].s) return;
+        rows.push({ n, s, t: Date.now() });
+        return normalizeHall(rows);
+      })
+      .catch(() => {});
+  }
+
   function connectFirebase() {
     if (!window.firebase || !window.BLOBIO_FIREBASE) {
       netError = "offline";
       setNetStatus("Offline · bots only", "bad");
+      if (hallListEl) hallListEl.innerHTML = `<li class="hall-empty">Offline</li>`;
+      if (googleBtn) googleBtn.disabled = true;
       return;
     }
     try {
       if (!firebase.apps.length) firebase.initializeApp(window.BLOBIO_FIREBASE);
       db = firebase.database();
+      auth = firebase.auth();
+      auth.onAuthStateChanged((user) => {
+        authUser = user;
+        updateAuthUi();
+        if (user && !user.isAnonymous) {
+          if (nickEl && !nickEl.value && user.displayName) {
+            nickEl.value = String(user.displayName).slice(0, 16);
+          }
+          loadCloudBest(user.uid);
+        }
+      });
       db.ref(".info/connected").on("value", (snap) => {
         if (snap.val()) {
           netReady = true;
@@ -1327,9 +1678,17 @@
       db.ref(`${NET_PATH}/eaten`).on("child_changed", (snap) => {
         if (snap.key !== myNetId) applyRemoteEaten(snap.val());
       });
+      db.ref(HALL_PATH).on(
+        "value",
+        (snap) => renderHall(snap.val()),
+        () => {
+          if (hallListEl) hallListEl.innerHTML = `<li class="hall-empty">Unavailable</li>`;
+        }
+      );
     } catch (err) {
       netError = String(err && err.message ? err.message : err);
       setNetStatus("Offline · bots only", "bad");
+      if (hallListEl) hallListEl.innerHTML = `<li class="hall-empty">Offline</li>`;
     }
   }
 
@@ -1344,6 +1703,7 @@
     menu.classList.add("hidden");
     death.classList.add("hidden");
     hud.classList.remove("hidden");
+    syncMenuChrome();
     refreshHud();
     netJoin();
   }
@@ -1362,11 +1722,43 @@
     menu.classList.remove("hidden");
     bestEl.textContent = String(Math.round(best));
     syncNpcPopulation();
+    syncMenuChrome();
+    refreshLevelUi();
   }
 
   function bindInput() {
     window.addEventListener("resize", resize);
     canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+    window.addEventListener(
+      "wheel",
+      (e) => {
+        if (e.ctrlKey || e.metaKey) e.preventDefault();
+      },
+      { passive: false }
+    );
+    window.addEventListener(
+      "gesturestart",
+      (e) => {
+        e.preventDefault();
+      },
+      { passive: false }
+    );
+    window.addEventListener(
+      "gesturechange",
+      (e) => {
+        e.preventDefault();
+      },
+      { passive: false }
+    );
+    document.addEventListener(
+      "keydown",
+      (e) => {
+        if (!(e.ctrlKey || e.metaKey)) return;
+        const k = e.key;
+        if (k === "+" || k === "-" || k === "=" || k === "_" || k === "0") e.preventDefault();
+      },
+      true
+    );
     window.addEventListener("pointermove", (e) => {
       mouse.x = e.clientX;
       mouse.y = e.clientY;
@@ -1555,15 +1947,19 @@
 
   nickEl.value = localStorage.getItem("blobio-nick") || "";
   bestEl.textContent = String(Math.round(best));
+  refreshLevelUi();
   applyTheme();
   buildColors();
   bindSkinUi();
+  bindAuthUi();
   loadSkinFromCache();
   bindSessionLock();
   bindInput();
   resize();
   initWorld();
   connectFirebase();
+  updateAuthUi();
+  syncMenuChrome();
   mouse.x = viewW / 2;
   mouse.y = viewH / 2;
   if (location.hash === "#play") {
